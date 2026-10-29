@@ -19,10 +19,13 @@ const readJson = async (file) => {
 async function tokenRequest(params) {
   const res = await fetch('https://www.strava.com/oauth/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, ...params }),
+    body: new URLSearchParams({ client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, ...params }),
   });
-  if (!res.ok) throw new Error(`Strava token error ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.text();
+    console.error(`Strava token error ${res.status}: ${detail}`);
+    throw new Error(`Strava token error ${res.status}: ${detail}`);
+  }
   const tokens = await res.json();
   await fs.writeFile(TOKEN_FILE, JSON.stringify(tokens), { mode: 0o600 });
   return tokens;
