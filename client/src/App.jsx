@@ -9,8 +9,8 @@ import RouteSpace from './RouteSpace.jsx';
 
 const km = (m) => (m / 1000).toFixed(1);
 const MIN_REPEATS = 5;
-const SPORTS = [['all', 'All'], ['run', 'Run'], ['ride', 'Ride'], ['ski', 'Ski']];
-const SPORT_COLOR = { run: '#fc4c02', ride: '#1a73e8', ski: '#0b8f6a' };
+const SPORTS = [['all', 'All'], ['run', 'Run'], ['ride', 'Ride'], ['ski', 'Ski'], ['hike', 'Hike']];
+const SPORT_COLOR = { run: '#fc4c02', ride: '#1a73e8', ski: '#0b8f6a', hike: '#8e44ad' };
 
 function FitBounds({ points }) {
   const map = useMap();

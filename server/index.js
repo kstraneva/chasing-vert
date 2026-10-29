@@ -14,6 +14,7 @@ const SPORT_GROUPS = {
   run: ['Run', 'TrailRun'],
   ride: ['Ride', 'MountainBikeRide', 'GravelRide', 'EBikeRide', 'EMountainBikeRide', 'Handcycle'],
   ski: ['AlpineSki', 'BackcountrySki', 'NordicSki'],
+  hike: ['Hike'],
 };
 const sportGroup = (a) => {
   const t = a.sport_type || a.type;
