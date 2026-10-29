@@ -1,17 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Deck, OrbitView } from '@deck.gl/core';
+import { Deck, MapView, WebMercatorViewport } from '@deck.gl/core';
 import { LineLayer, ScatterplotLayer } from '@deck.gl/layers';
+import { TerrainLayer } from '@deck.gl/geo-layers';
 import { pointValues } from './elevation.js';
 import { RAMP_CSS } from './colors.js';
 
 const toRgb = (s) => s.match(/\d+/g).slice(0, 3).map(Number);
-
-// Local metric coordinates: x east, y north, z raw altitude (metres).
-function project({ latlng, altitude }) {
-  const lat0 = latlng[0][0], lng0 = latlng[0][1];
-  const kx = Math.cos((lat0 * Math.PI) / 180) * 111320;
-  return latlng.map(([lat, lng], i) => [(lng - lng0) * kx, (lat - lat0) * 110540, altitude[i]]);
-}
+const DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+const BASEMAPS = {
+  satellite: { label: 'Satellite', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', credit: 'Imagery © Esri, Maxar, Earthstar Geographics' },
+  topo: { label: 'Topo', url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png', credit: '© OpenTopoMap (CC-BY-SA), © OpenStreetMap contributors' },
+  esritopo: { label: 'Esri Topo', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', credit: 'Map © Esri, HERE, Garmin, USGS, NPS' },
+  streets: { label: 'Streets', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', credit: '© OpenStreetMap contributors' },
+};
+const LIFT = 8; // metres above the route's recorded altitude, so it isn't buried by DEM mismatch
 
 function gradeAt(i, alt, dist) {
   const a = Math.max(0, i - 5), b = Math.min(alt.length - 1, i + 5);
@@ -23,57 +25,71 @@ export default function RouteSpace({ streams, mode }) {
   const parent = useRef(null);
   const deckRef = useRef(null);
   const [exag, setExag] = useState(2);
+  const [terrain, setTerrain] = useState(true);
+  const [basemap, setBasemap] = useState('satellite');
   const [sel, setSel] = useState(null);
-  const { altitude, distance } = streams;
+  const { latlng, altitude, distance } = streams;
   const n = altitude.length;
 
-  const pts = useMemo(() => project(streams), [streams]);
   const { colors } = useMemo(() => pointValues(streams, mode), [streams, mode]);
   const minAlt = Math.min(...altitude), maxAlt = Math.max(...altitude);
-  const segs = useMemo(() => pts.slice(1).map((p, i) => ({ i: i + 1, a: pts[i], b: p, color: toRgb(colors[i + 1]) })), [pts, colors]);
-  const extent = useMemo(() => {
-    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-    return { x: [Math.min(...xs), Math.max(...xs)], y: [Math.min(...ys), Math.max(...ys)] };
-  }, [pts]);
-
-  const z = (p) => (p[2] - minAlt) * exag;
+  const segs = useMemo(() => latlng.slice(1).map((p, i) => ({ i: i + 1, a: latlng[i], b: p, ai: i, color: toRgb(colors[i + 1]) })), [latlng, colors]);
 
   const layers = useMemo(() => {
-    const step = Math.max(1, Math.floor(segs.length / 400));
-    const L = [
-      // ground trace
-      new LineLayer({ id: 'ground', data: segs, getSourcePosition: (d) => [d.a[0], d.a[1], 0], getTargetPosition: (d) => [d.b[0], d.b[1], 0],
-        getColor: [90, 90, 90, 160], getWidth: 2 }),
-      // curtain from route down to the ground plane
-      new LineLayer({ id: 'curtain', data: segs.filter((_, k) => k % step === 0), getSourcePosition: (d) => [d.a[0], d.a[1], 0],
-        getTargetPosition: (d) => [d.a[0], d.a[1], z(d.a)], getColor: (d) => [...d.color, 70], getWidth: 2, updateTriggers: { getTargetPosition: exag } }),
-      // the route itself, in space
-      new LineLayer({ id: 'route', data: segs, pickable: true, getSourcePosition: (d) => [d.a[0], d.a[1], z(d.a)], getTargetPosition: (d) => [d.b[0], d.b[1], z(d.b)],
-        getColor: (d) => [...d.color, 255], getWidth: 6, widthMinPixels: 4, updateTriggers: { getSourcePosition: exag, getTargetPosition: exag } }),
-    ];
+    // z is metres * exaggeration, matching the terrain's exaggerated decoder.
+    const pos = (ll, k) => [ll[1], ll[0], (altitude[k] + LIFT) * exag];
+    const floor = (minAlt - 5) * exag;
+    const step = Math.max(1, Math.floor(segs.length / 300));
+    const L = [];
+    if (terrain) {
+      L.push(new TerrainLayer({
+        id: 'terrain', elevationData: DEM, texture: BASEMAPS[basemap].url, minZoom: 0, maxZoom: 15, meshMaxError: 4,
+        elevationDecoder: { rScaler: 256 * exag, gScaler: exag, bScaler: exag / 256, offset: -32768 * exag },
+        color: [255, 255, 255],
+      }));
+    } else {
+      // no terrain: show a ground trace and curtain so heights are readable
+      L.push(
+        new LineLayer({ id: 'ground', data: segs, getSourcePosition: (d) => [d.a[1], d.a[0], floor], getTargetPosition: (d) => [d.b[1], d.b[0], floor], getColor: [90, 90, 90, 160], getWidth: 2 }),
+        new LineLayer({ id: 'curtain', data: segs.filter((_, k) => k % step === 0), getSourcePosition: (d) => [d.a[1], d.a[0], floor],
+          getTargetPosition: (d) => pos(d.a, d.ai), getColor: (d) => [...d.color, 70], getWidth: 2, updateTriggers: { getTargetPosition: exag } }),
+      );
+    }
+    L.push(new LineLayer({
+      id: 'route-casing', data: segs, getSourcePosition: (d) => pos(d.a, d.ai), getTargetPosition: (d) => pos(d.b, d.i),
+      getColor: [0, 0, 0, 200], getWidth: 10, widthMinPixels: 7, parameters: { depthCompare: 'always' },
+      updateTriggers: { getSourcePosition: exag, getTargetPosition: exag },
+    }), new LineLayer({
+      id: 'route', data: segs, pickable: true, getSourcePosition: (d) => pos(d.a, d.ai), getTargetPosition: (d) => pos(d.b, d.i),
+      getColor: (d) => [...d.color, 255], getWidth: 6, widthMinPixels: 4, parameters: { depthCompare: 'always' },
+      updateTriggers: { getSourcePosition: exag, getTargetPosition: exag },
+    }));
     if (sel != null) {
-      L.push(new ScatterplotLayer({ id: 'marker', data: [pts[sel]], getPosition: (p) => [p[0], p[1], z(p)], getRadius: 9, radiusUnits: 'pixels',
-        getFillColor: [255, 255, 255], getLineColor: [0, 0, 0], stroked: true, lineWidthMinPixels: 2, updateTriggers: { getPosition: exag } }));
+      L.push(new ScatterplotLayer({
+        id: 'marker', data: [sel], getPosition: (k) => pos(latlng[k], k), getRadius: 9, radiusUnits: 'pixels',
+        getFillColor: [255, 255, 255], getLineColor: [0, 0, 0], stroked: true, lineWidthMinPixels: 2,
+        parameters: { depthCompare: 'always' }, updateTriggers: { getPosition: exag },
+      }));
     }
     return L;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segs, exag, sel, pts]);
+  }, [segs, exag, sel, terrain, basemap, latlng, altitude, minAlt]);
 
   useEffect(() => {
-    const spanXY = Math.max(extent.x[1] - extent.x[0], extent.y[1] - extent.y[0], 1);
-    const span = Math.max(spanXY, (maxAlt - minAlt) * 2);
-    const cx = (extent.x[0] + extent.x[1]) / 2, cy = (extent.y[0] + extent.y[1]) / 2;
+    const el = parent.current;
+    const lats = latlng.map((p) => p[0]), lngs = latlng.map((p) => p[1]);
+    const vp = new WebMercatorViewport({ width: el.clientWidth || 800, height: el.clientHeight || 600 })
+      .fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 80 });
     const deck = new Deck({
-      parent: parent.current,
-      views: new OrbitView({ orbitAxis: 'Z', fov: 40 }),
-      initialViewState: { target: [cx, cy, ((maxAlt - minAlt) * 2) / 2], zoom: Math.log2(600 / span), rotationX: 50, rotationOrbit: -30, minZoom: -8, maxZoom: 6 },
+      parent: el,
+      views: new MapView({ repeat: false }),
+      initialViewState: { longitude: vp.longitude, latitude: vp.latitude, zoom: Math.min(vp.zoom, 15), pitch: 60, bearing: -20, maxPitch: 85, maxZoom: 18 },
       controller: true,
       getCursor: ({ isHovering }) => (isHovering ? 'pointer' : 'grab'),
       onClick: (info) => { if (info.layer?.id === 'route') setSel(info.object.i); },
     });
     deckRef.current = deck;
     return () => { deck.finalize(); deckRef.current = null; };
-  }, [extent, minAlt, maxAlt]);
+  }, [latlng]);
 
   useEffect(() => { deckRef.current?.setProps({ layers }); }, [layers]);
   useEffect(() => { setSel(null); }, [streams]);
@@ -105,9 +121,16 @@ export default function RouteSpace({ streams, mode }) {
           <div>{(distance[sel] / 1000).toFixed(2)} km · {Math.round(altitude[sel])} m · grade {gradeAt(sel, altitude, distance).toFixed(1)}%</div>
         ) : <div>Click the route or the profile to inspect a point</div>}
         <label>Vertical exaggeration {exag.toFixed(1)}×
-          <input type="range" min="1" max="8" step="0.5" value={exag} onChange={(e) => setExag(+e.target.value)} style={{ width: '100%' }} />
+          <input type="range" min="1" max="6" step="0.5" value={exag} onChange={(e) => setExag(+e.target.value)} style={{ width: '100%' }} />
         </label>
-        <div style={{ color: '#666' }}>Drag to rotate · scroll to zoom · right-drag to pan</div>
+        <div className="controls">
+          {Object.entries(BASEMAPS).map(([k, b]) => (
+            <button key={k} className={basemap === k ? 'active' : ''} onClick={() => setBasemap(k)}>{b.label}</button>
+          ))}
+        </div>
+        <label><input type="checkbox" checked={terrain} onChange={(e) => setTerrain(e.target.checked)} /> Terrain</label>
+        <div style={{ color: '#666', fontSize: 10 }}>{BASEMAPS[basemap].credit} · Terrain: Mapzen/AWS</div>
+        <div style={{ color: '#666' }}>Drag to pan · right-drag (or Ctrl-drag) to rotate and tilt · scroll to zoom</div>
       </div>
     </div>
   );

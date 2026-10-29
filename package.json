@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@deck.gl/core": "^9.4.1",
+    "@deck.gl/geo-layers": "^9.4.1",
     "@deck.gl/layers": "^9.4.1",
     "@mapbox/polyline": "^1.2.1",
     "dotenv": "^18.0.9",
