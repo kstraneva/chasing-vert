@@ -1,0 +1,19 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; color: #1b1f24; }
+.app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+.sidebar { overflow-y: auto; border-right: 1px solid #ddd; padding: 12px; }
+.sidebar h1 { margin: 0 0 4px; font-size: 20px; }
+.stats { color: #555; font-size: 13px; margin-bottom: 10px; }
+.run { padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.run:hover { background: #f1f3f5; }
+.run.selected { background: #e7f0ff; }
+.run b { display: block; }
+.run span { color: #666; }
+.controls { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+.controls button { padding: 4px 10px; border: 1px solid #ccc; background: #fff; border-radius: 14px; cursor: pointer; }
+.controls button.active { background: #1b1f24; color: #fff; }
+.map { height: 100vh; }
+.legend { position: absolute; z-index: 1000; bottom: 20px; right: 12px; background: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.legend .bar { width: 160px; height: 8px; border-radius: 4px; margin: 4px 0; }
+.legend .ticks { display: flex; justify-content: space-between; }
+.center { display: grid; place-items: center; height: 100vh; }
