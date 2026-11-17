@@ -93,7 +93,7 @@ app.get('/api/activities', async (req, res) => {
       if (batch.length < 200) break;
     }
     const slim = activities.map((a) => ({
-      id: a.id, name: a.name, sport: sportGroup(a), sportType: a.sport_type || a.type, date: a.start_date_local, distance: a.distance,
+      id: a.id_str ?? String(a.id), name: a.name, sport: sportGroup(a), sportType: a.sport_type || a.type, date: a.start_date_local, distance: a.distance,
       movingTime: a.moving_time, elevationGain: a.total_elevation_gain,
       polyline: a.map?.summary_polyline || null,
     }));
